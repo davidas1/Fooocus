@@ -89,6 +89,7 @@ ip_adapters: dict = {}
 
 def load_ip_adapter(clip_vision_path, ip_negative_path, ip_adapter_path):
     global clip_vision, ip_negative, ip_adapters
+    ip_adapter_name, ip_adapter_path = ip_adapter_path
 
     if clip_vision is None and isinstance(clip_vision_path, str):
         clip_vision = fcbh.clip_vision.load(clip_vision_path)
@@ -135,7 +136,7 @@ def load_ip_adapter(clip_vision_path, ip_negative_path, ip_adapter_path):
     ip_layers = ModelPatcher(model=ip_adapter.ip_layers, load_device=load_device,
                              offload_device=offload_device)
 
-    ip_adapters[ip_adapter_path] = dict(
+    ip_adapters[ip_adapter_name] = dict(
         ip_adapter=ip_adapter,
         image_proj_model=image_proj_model,
         ip_layers=ip_layers,
@@ -161,11 +162,11 @@ def clip_preprocess(image):
 
 @torch.no_grad()
 @torch.inference_mode()
-def preprocess(img, ip_adapter_path):
+def preprocess(img, ip_adapter_name):
     global ip_adapters
-    entry = ip_adapters[ip_adapter_path]
+    entry = ip_adapters[ip_adapter_name]
 
-    fcbh.model_management.load_model_gpu(clip_vision.patcher)
+    model_management.load_model_gpu(clip_vision.patcher)
     pixel_values = clip_preprocess(numpy_to_pytorch(img).to(clip_vision.load_device))
 
     if clip_vision.dtype != torch.float32:
@@ -173,7 +174,7 @@ def preprocess(img, ip_adapter_path):
     else:
         precision_scope = lambda a, b: contextlib.nullcontext(a)
 
-    with precision_scope(fcbh.model_management.get_autocast_device(clip_vision.load_device), torch.float32):
+    with precision_scope(model_management.get_autocast_device(clip_vision.load_device), torch.float32):
         outputs = clip_vision.model(pixel_values=pixel_values, output_hidden_states=True)
 
     ip_adapter = entry['ip_adapter']
@@ -188,10 +189,10 @@ def preprocess(img, ip_adapter_path):
 
     cond = cond.to(device=ip_adapter.load_device, dtype=ip_adapter.dtype)
 
-    fcbh.model_management.load_model_gpu(image_proj_model)
+    model_management.load_model_gpu(image_proj_model)
     cond = image_proj_model.model(cond).to(device=ip_adapter.load_device, dtype=ip_adapter.dtype)
 
-    fcbh.model_management.load_model_gpu(ip_layers)
+    model_management.load_model_gpu(ip_layers)
 
     if ip_unconds is None:
         uncond = ip_negative.to(device=ip_adapter.load_device, dtype=ip_adapter.dtype)
@@ -219,6 +220,8 @@ def patch_model(model, tasks):
             v = [value_attn2]
             b, _, _ = q.shape
 
+            out = sdp(q, context_attn2, value_attn2, extra_options)
+
             for (cs, ucs), cn_stop, cn_weight in tasks:
                 if current_step < cn_stop:
                     ip_k_c = cs[ip_index * 2].to(q)
@@ -229,30 +232,35 @@ def patch_model(model, tasks):
                     ip_k = torch.cat([(ip_k_c, ip_k_uc)[i] for i in cond_or_uncond], dim=0)
                     ip_v = torch.cat([(ip_v_c, ip_v_uc)[i] for i in cond_or_uncond], dim=0)
 
-                    # Midjourney's attention formulation of image prompt (non-official reimplementation)
-                    # Written by Lvmin Zhang at Stanford University, 2023 Dec
-                    # For non-commercial use only - if you use this in commercial project then
-                    # probably it has some intellectual property issues.
-                    # Contact lvminzhang@acm.org if you are not sure.
+                    # the output of sdp = (batch, num_heads, seq_len, head_dim)
+                    # TODO: add support for attn.scale when we move to Torch 2.1
+                    ip_hidden_states = sdp(q, ip_k, ip_v, extra_options)
+                    out = out + cn_weight * ip_hidden_states
 
-                    # Below is the sensitive part with potential intellectual property issues.
+                    # # Midjourney's attention formulation of image prompt (non-official reimplementation)
+                    # # Written by Lvmin Zhang at Stanford University, 2023 Dec
+                    # # For non-commercial use only - if you use this in commercial project then
+                    # # probably it has some intellectual property issues.
+                    # # Contact lvminzhang@acm.org if you are not sure.
 
-                    ip_v_mean = torch.mean(ip_v, dim=1, keepdim=True)
-                    ip_v_offset = ip_v - ip_v_mean
+                    # # Below is the sensitive part with potential intellectual property issues.
 
-                    B, F, C = ip_k.shape
-                    channel_penalty = float(C) / 1280.0
-                    weight = cn_weight * channel_penalty
+                    # ip_v_mean = torch.mean(ip_v, dim=1, keepdim=True)
+                    # ip_v_offset = ip_v - ip_v_mean
 
-                    ip_k = ip_k * weight
-                    ip_v = ip_v_offset + ip_v_mean * weight
+                    # B, F, C = ip_k.shape
+                    # channel_penalty = float(C) / 1280.0
+                    # weight = cn_weight * channel_penalty
 
-                    k.append(ip_k)
-                    v.append(ip_v)
+                    # ip_k = ip_k * weight
+                    # ip_v = ip_v_offset + ip_v_mean * weight
 
-            k = torch.cat(k, dim=1)
-            v = torch.cat(v, dim=1)
-            out = sdp(q, k, v, extra_options)
+                    # k.append(ip_k)
+                    # v.append(ip_v)
+
+            # k = torch.cat(k, dim=1)
+            # v = torch.cat(v, dim=1)
+            # out = sdp(q, k, v, extra_options)
 
 
             return out.to(dtype=org_dtype)
@@ -284,5 +292,36 @@ def patch_model(model, tasks):
     for index in range(10):
         set_model_patch_replace(new_model, number, ("middle", 0, index))
         number += 1
+
+    return new_model
+
+
+@torch.no_grad()
+@torch.inference_mode()
+def unpatch_model(model):
+    new_model = model.clone()
+
+    def unset_model_patch_replace(model, key):
+        to = model.model_options["transformer_options"]
+        if "patches_replace" not in to:
+            return
+        if "attn2" not in to["patches_replace"]:
+            return
+        if key not in to["patches_replace"]["attn2"]:
+            return
+        to["patches_replace"]["attn2"].pop(key)
+
+    for id in [4, 5, 7, 8]:
+        block_indices = range(2) if id in [4, 5] else range(10)
+        for index in block_indices:
+            unset_model_patch_replace(new_model, ("input", id, index))
+
+    for id in range(6):
+        block_indices = range(2) if id in [3, 4, 5] else range(10)
+        for index in block_indices:
+            unset_model_patch_replace(new_model, ("output", id, index))
+
+    for index in range(10):
+        unset_model_patch_replace(new_model, ("middle", 0, index))
 
     return new_model

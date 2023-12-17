@@ -359,10 +359,16 @@ def load_models_gpu(models, memory_required=0):
     models_already_loaded = []
     for x in models:
         loaded_model = LoadedModel(x)
+        model_clones = []
+        # model_clones = [clone_idx for clone_idx, m in enumerate(current_loaded_models) if m.model.is_clone(x)]
 
-        if loaded_model in current_loaded_models:
-            index = current_loaded_models.index(loaded_model)
-            current_loaded_models.insert(0, current_loaded_models.pop(index))
+        if loaded_model in current_loaded_models or len(model_clones) > 0:
+            if len(model_clones) > 0:
+                index = model_clones[0]
+            else:
+                index = current_loaded_models.index(loaded_model)
+            current_loaded_models.pop(index)
+            current_loaded_models.insert(0, loaded_model)
             models_already_loaded.append(loaded_model)
         else:
             if hasattr(x, "model"):

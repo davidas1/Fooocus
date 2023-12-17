@@ -150,9 +150,9 @@ class InpaintWorker:
         self.interested_mask = mask[a:b, c:d]
         self.interested_image = image[a:b, c:d]
 
-        # super resolution
-        if get_image_shape_ceil(self.interested_image) < 1024:
-            self.interested_image = perform_upscale(self.interested_image)
+        # # super resolution
+        # if get_image_shape_ceil(self.interested_image) < 1024:
+        #     self.interested_image = perform_upscale(self.interested_image)
 
         # resize to make images ready for diffusion
         self.interested_image = set_image_shape_ceil(self.interested_image, 1024)
@@ -206,8 +206,29 @@ class InpaintWorker:
             return h
 
         m = model.clone()
-        m.set_model_input_block_patch(input_block_patch)
+
+        def override_patch(self, patch, name):
+            to = self.model_options["transformer_options"]
+            if "patches" not in to:
+                to["patches"] = {}
+            to["patches"][name] = [patch]
+        
+        override_patch(m, input_block_patch, 'input_block_patch')
+        # m.set_model_input_block_patch(input_block_patch)
         return m
+
+    def unpatch(self, model):
+        m = model.clone()
+
+        def override_patch(self, name):
+            to = self.model_options["transformer_options"]
+            if "patches" not in to:
+                to["patches"] = {}
+            to["patches"].pop(name)
+        
+        override_patch(m, 'input_block_patch')
+        return m
+
 
     def swap(self):
         if self.swapped:

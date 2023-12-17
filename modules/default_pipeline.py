@@ -31,12 +31,12 @@ loaded_ControlNets = {}
 def refresh_controlnets(model_paths):
     global loaded_ControlNets
     cache = {}
-    for p in model_paths:
+    for n, p in model_paths.items():
         if p is not None:
-            if p in loaded_ControlNets:
-                cache[p] = loaded_ControlNets[p]
+            if n in loaded_ControlNets:
+                cache[n] = loaded_ControlNets[n]
             else:
-                cache[p] = core.load_controlnet(p)
+                cache[n] = core.load_controlnet(p)
     loaded_ControlNets = cache
     return
 
@@ -208,7 +208,8 @@ def prepare_text_encoder(async_call=True):
         # TODO: make sure that this is always called in an async way so that users cannot feel it.
         pass
     assert_model_integrity()
-    fcbh.model_management.load_models_gpu([final_clip.patcher, final_expansion.patcher])
+    # fcbh.model_management.load_models_gpu([final_clip.patcher, final_expansion.patcher])
+    fcbh.model_management.load_models_gpu([final_clip.patcher])
     return
 
 
@@ -242,19 +243,19 @@ def refresh_everything(refiner_model_name, base_model_name, loras,
     final_refiner_unet = model_refiner.unet_with_lora
     final_refiner_vae = model_refiner.vae
 
-    if final_expansion is None:
-        final_expansion = FooocusExpansion()
+    # if final_expansion is None:
+    #     final_expansion = FooocusExpansion()
 
     prepare_text_encoder(async_call=True)
     clear_all_caches()
     return
 
 
-refresh_everything(
-    refiner_model_name=modules.config.default_refiner_model_name,
-    base_model_name=modules.config.default_base_model_name,
-    loras=modules.config.default_loras
-)
+# refresh_everything(
+#     refiner_model_name=modules.config.default_refiner_model_name,
+#     base_model_name=modules.config.default_base_model_name,
+#     loras=modules.config.default_loras
+# )
 
 
 @torch.no_grad()

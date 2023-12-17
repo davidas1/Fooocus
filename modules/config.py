@@ -2,15 +2,17 @@ import os
 import json
 import math
 import numbers
-import args_manager
+# import args_manager
 import modules.flags
 import modules.sdxl_styles
 
 from modules.model_loader import load_file_from_url
 from modules.util import get_files_from_folder
 
+from pathlib import Path
 
-config_path = os.path.abspath("./config.txt")
+# config_path = os.path.abspath("./config.txt")
+config_path = Path(__file__).parent.parent/'config.txt'
 config_example_path = os.path.abspath("config_modification_tutorial.txt")
 config_dict = {}
 always_save_keys = []
