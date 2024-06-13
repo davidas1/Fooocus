@@ -2,8 +2,9 @@ import torch
 import numpy as np
 
 from PIL import Image, ImageFilter
-from modules.util import resample_image, set_image_shape_ceil, get_image_shape_ceil
-from modules.upscaler import perform_upscale
+from dl_utils.cv_extensions.morph import large_radius_dilation
+from modules.util import HWC3, resample_image, set_image_shape_ceil, get_image_shape_ceil
+# from modules.upscaler import perform_upscale
 import cv2
 
 
@@ -148,8 +149,9 @@ def fooocus_fill(image, mask):
 
 
 class InpaintWorker:
-    def __init__(self, image, mask, use_fill=True, k=0.618):
-        a, b, c, d = compute_initial_abcd(mask > 0)
+    def __init__(self, image, mask, use_fill=True, resize_input=True, k=0.618, mask_threshold=0,
+                 dilate_mask_radius=0, blur_mask=True):
+        a, b, c, d = compute_initial_abcd(mask > mask_threshold)
         a, b, c, d = solve_abcd(mask, a, b, c, d, k=k)
 
         # interested area
@@ -162,19 +164,35 @@ class InpaintWorker:
         #     self.interested_image = perform_upscale(self.interested_image)
 
         # resize to make images ready for diffusion
-        self.interested_image = set_image_shape_ceil(self.interested_image, 1024)
+        if resize_input:
+            self.interested_image = set_image_shape_ceil(self.interested_image, 1024)
         self.interested_fill = self.interested_image.copy()
         H, W, C = self.interested_image.shape
 
         # process mask
-        self.interested_mask = up255(resample_image(self.interested_mask, W, H), t=127)
+        if (H, W) != self.interested_mask.shape[:2]:
+            self.interested_mask = resample_image(self.interested_mask, W, H)
+        self.interested_mask = up255(self.interested_mask, t=127)
+
+        if dilate_mask_radius > 0:
+            # here we will dilate the mask and then do the alpha multiplying
+            self.interested_mask = large_radius_dilation(self.interested_mask,
+                                                        radius=dilate_mask_radius, 
+                                                        mask_threshold=0,
+                                                        max_val=255)
+
+            # alpha-multiply the image with the dilated mask (only for outpainting/bg-replace?)
+            self.interested_image = np.dstack([self.interested_image, 255-self.interested_mask])
+            self.interested_image = HWC3(self.interested_image)
 
         # compute filling
         if use_fill:
             self.interested_fill = fooocus_fill(self.interested_image, self.interested_mask)
 
         # soft pixels
-        self.mask = morphological_open(mask)
+        self.mask = mask
+        if blur_mask:
+            self.mask = morphological_open(mask)
         self.image = image
 
         # ending

@@ -18,25 +18,25 @@ config_dict = {}
 always_save_keys = []
 visited_keys = []
 
-try:
-    with open(os.path.abspath(f'./presets/default.json'), "r", encoding="utf-8") as json_file:
-        config_dict.update(json.load(json_file))
-except Exception as e:
-    print(f'Load default preset failed.')
-    print(e)
+# try:
+#     with open(os.path.abspath(f'./presets/default.json'), "r", encoding="utf-8") as json_file:
+#         config_dict.update(json.load(json_file))
+# except Exception as e:
+#     print(f'Load default preset failed.')
+#     print(e)
 
-try:
-    if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as json_file:
-            config_dict.update(json.load(json_file))
-            always_save_keys = list(config_dict.keys())
-except Exception as e:
-    print(f'Failed to load config file "{config_path}" . The reason is: {str(e)}')
-    print('Please make sure that:')
-    print(f'1. The file "{config_path}" is a valid text file, and you have access to read it.')
-    print('2. Use "\\\\" instead of "\\" when describing paths.')
-    print('3. There is no "," before the last "}".')
-    print('4. All key/value formats are correct.')
+# try:
+#     if os.path.exists(config_path):
+#         with open(config_path, "r", encoding="utf-8") as json_file:
+#             config_dict.update(json.load(json_file))
+#             always_save_keys = list(config_dict.keys())
+# except Exception as e:
+#     print(f'Failed to load config file "{config_path}" . The reason is: {str(e)}')
+#     print('Please make sure that:')
+#     print(f'1. The file "{config_path}" is a valid text file, and you have access to read it.')
+#     print('2. Use "\\\\" instead of "\\" when describing paths.')
+#     print('3. There is no "," before the last "}".')
+#     print('4. All key/value formats are correct.')
 
 
 def try_load_deprecated_user_path_config():
@@ -88,7 +88,7 @@ def try_load_deprecated_user_path_config():
 
 try_load_deprecated_user_path_config()
 
-preset = args_manager.args.preset
+preset = 'default'
 
 if isinstance(preset, str):
     preset_path = os.path.abspath(f'./presets/{preset}.json')
@@ -174,7 +174,7 @@ def get_config_item_or_set_default(key, default_value, validator, disable_empty_
 
 default_base_model_name = get_config_item_or_set_default(
     key='default_model',
-    default_value='model.safetensors',
+    default_value='juggernautXL_version6Rundiffusion.safetensors',
     validator=lambda x: isinstance(x, str)
 )
 previous_default_models = get_config_item_or_set_default(
@@ -196,8 +196,8 @@ default_loras = get_config_item_or_set_default(
     key='default_loras',
     default_value=[
         [
-            "None",
-            1.0
+            "sd_xl_offset_example-lora_1.0.safetensors",
+            0.1
         ],
         [
             "None",
@@ -383,24 +383,24 @@ default_aspect_ratio = add_ratio(default_aspect_ratio)
 available_aspect_ratios = [add_ratio(x) for x in available_aspect_ratios]
 
 
-# Only write config in the first launch.
-if not os.path.exists(config_path):
-    with open(config_path, "w", encoding="utf-8") as json_file:
-        json.dump({k: config_dict[k] for k in always_save_keys}, json_file, indent=4)
+# # Only write config in the first launch.
+# if not os.path.exists(config_path):
+#     with open(config_path, "w", encoding="utf-8") as json_file:
+#         json.dump({k: config_dict[k] for k in always_save_keys}, json_file, indent=4)
 
 
-# Always write tutorials.
-with open(config_example_path, "w", encoding="utf-8") as json_file:
-    cpa = config_path.replace("\\", "\\\\")
-    json_file.write(f'You can modify your "{cpa}" using the below keys, formats, and examples.\n'
-                    f'Do not modify this file. Modifications in this file will not take effect.\n'
-                    f'This file is a tutorial and example. Please edit "{cpa}" to really change any settings.\n'
-                    + 'Remember to split the paths with "\\\\" rather than "\\", '
-                      'and there is no "," before the last "}". \n\n\n')
-    json.dump({k: config_dict[k] for k in visited_keys}, json_file, indent=4)
+# # Always write tutorials.
+# with open(config_example_path, "w", encoding="utf-8") as json_file:
+#     cpa = config_path.replace("\\", "\\\\")
+#     json_file.write(f'You can modify your "{cpa}" using the below keys, formats, and examples.\n'
+#                     f'Do not modify this file. Modifications in this file will not take effect.\n'
+#                     f'This file is a tutorial and example. Please edit "{cpa}" to really change any settings.\n'
+#                     + 'Remember to split the paths with "\\\\" rather than "\\", '
+#                       'and there is no "," before the last "}". \n\n\n')
+#     json.dump({k: config_dict[k] for k in visited_keys}, json_file, indent=4)
 
 
-os.makedirs(path_outputs, exist_ok=True)
+# os.makedirs(path_outputs, exist_ok=True)
 
 model_filenames = []
 lora_filenames = []

@@ -232,7 +232,7 @@ def refresh_everything(refiner_model_name, base_model_name, loras,
         refresh_refiner_model(refiner_model_name)
         refresh_base_model(base_model_name)
 
-    refresh_loras(loras, base_model_additional_loras=base_model_additional_loras)
+    refresh_loras(loras=loras, base_model_additional_loras=base_model_additional_loras)
     assert_model_integrity()
 
     final_unet = model_base.unet_with_lora
@@ -245,7 +245,7 @@ def refresh_everything(refiner_model_name, base_model_name, loras,
     # if final_expansion is None:
     #     final_expansion = FooocusExpansion()
 
-    prepare_text_encoder(async_call=True)
+    # prepare_text_encoder(async_call=True)
     clear_all_caches()
     return
 
@@ -315,7 +315,8 @@ def get_candidate_vae(steps, switch, denoise=1.0, refiner_swap_method='joint'):
 
 @torch.no_grad()
 @torch.inference_mode()
-def process_diffusion(positive_cond, negative_cond, steps, switch, width, height, image_seed, callback, sampler_name, scheduler_name, latent=None, denoise=1.0, tiled=False, cfg_scale=7.0, refiner_swap_method='joint'):
+def process_diffusion(positive_cond, negative_cond, steps, switch, width, height, image_seed, callback, sampler_name, scheduler_name, latent=None, denoise=1.0, tiled=False, cfg_scale=7.0, refiner_swap_method='joint',
+                      return_latents=False):
     target_unet, target_vae, target_refiner_unet, target_refiner_vae, target_clip \
         = final_unet, final_vae, final_refiner_unet, final_refiner_vae, final_clip
 
@@ -375,7 +376,7 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
             previewer_start=0,
             previewer_end=steps,
         )
-        decoded_latent = core.decode_vae(vae=target_vae, latent_image=sampled_latent, tiled=tiled)
+        target_model = target_vae
 
     if refiner_swap_method == 'separate':
         sampled_latent = core.ksampler(
@@ -419,7 +420,6 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
         target_model = target_refiner_vae
         if target_model is None:
             target_model = target_vae
-        decoded_latent = core.decode_vae(vae=target_model, latent_image=sampled_latent, tiled=tiled)
 
     if refiner_swap_method == 'vae':
         modules.patch.eps_record = 'vae'
@@ -485,8 +485,11 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
         target_model = target_refiner_vae
         if target_model is None:
             target_model = target_vae
-        decoded_latent = core.decode_vae(vae=target_model, latent_image=sampled_latent, tiled=tiled)
+
+    decoded_latent = core.decode_vae(vae=target_model, latent_image=sampled_latent, tiled=tiled)
 
     images = core.pytorch_to_numpy(decoded_latent)
     modules.patch.eps_record = None
+    if return_latents:
+        return images, sampled_latent
     return images

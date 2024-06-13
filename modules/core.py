@@ -152,7 +152,7 @@ class StableDiffusionModel:
 
         lora_weights = {}
         for lora_name, lora_filename, weight in loras_to_load:
-            lora_unmatch = fcbh.utils.load_torch_file(lora_filename, safe_load=False)
+            lora_unmatch = ldm_patched.modules.utils.load_torch_file(lora_filename, safe_load=False)
             lora_unet, lora_unmatch = match_lora(lora_unmatch, self.lora_key_map_unet)
             lora_clip, lora_unmatch = match_lora(lora_unmatch, self.lora_key_map_clip)
 
@@ -246,16 +246,18 @@ def encode_vae_inpaint(vae, pixels, mask):
     assert mask.ndim == 3 and pixels.ndim == 4
     assert mask.shape[-1] == pixels.shape[-2]
     assert mask.shape[-2] == pixels.shape[-3]
-
+    # todo: soft pixels - do not threshold the mask (fade to grey)
     w = mask.round()[..., None]
+    # w = mask[..., None]
     pixels = pixels * (1 - w) + 0.5 * w
 
     latent = vae.encode(pixels)
     B, C, H, W = latent.shape
-
+    # todo: check if it's better to send binary latent mask or non-binary and which pooling method works best
     latent_mask = mask[:, None, :, :]
     latent_mask = torch.nn.functional.interpolate(latent_mask, size=(H * 8, W * 8), mode="bilinear").round()
     latent_mask = torch.nn.functional.max_pool2d(latent_mask, (8, 8)).round().to(latent)
+    # latent_mask = torch.nn.functional.avg_pool2d(latent_mask, (8, 8)).to(latent)
 
     return latent, latent_mask
 
